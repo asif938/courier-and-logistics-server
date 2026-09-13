@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
-import { PrismaClient, type ServiceType } from '../src/generated/prisma/client';
+import { type Prisma, PrismaClient, type ServiceType } from '../src/generated/prisma/client';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
@@ -169,11 +169,12 @@ async function main() {
   async function findOrCreateAddress(
     userId: string,
     label: string,
-    data: Parameters<typeof prisma.address.create>[0]['data'],
+    data: Omit<Prisma.AddressUncheckedCreateInput, 'userId' | 'label'>,
   ) {
     const existing = await prisma.address.findFirst({ where: { userId, label } });
     if (existing) return existing;
-    return prisma.address.create({ data: { ...data, userId, label } });
+    const createData: Prisma.AddressUncheckedCreateInput = { ...data, userId, label };
+    return prisma.address.create({ data: createData });
   }
 
   const alicePickup = await findOrCreateAddress(alice.id, 'Alice Home', {

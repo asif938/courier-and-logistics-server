@@ -12,6 +12,6 @@ export default defineConfig({
   datasource: {
     // Migrate/db pull need a direct (non-pooled) connection - Neon's pooler doesn't
     // support the advisory locks / prepared statements Migrate relies on.
-    url: process.env['DIRECT_URL'],
+    url: process.env.DIRECT_URL,
   },
 });
