@@ -1,5 +1,6 @@
 import { app } from './app';
 import { env } from './config/env';
+import { prisma } from './config/prisma';
 
 const server = app.listen(env.port, () => {
   // eslint-disable-next-line no-console
@@ -9,7 +10,9 @@ const server = app.listen(env.port, () => {
 function shutdown(signal: string) {
   // eslint-disable-next-line no-console
   console.log(`[server] received ${signal}, shutting down gracefully`);
-  server.close(() => process.exit(0));
+  server.close(() => {
+    prisma.$disconnect().finally(() => process.exit(0));
+  });
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'));
