@@ -14,7 +14,12 @@ export function validate(schema: ZodType, part: RequestPart = 'body') {
       }));
       return next(ApiError.badRequest('Validation failed', errors));
     }
-    req[part] = result.data;
+
+    if (part === 'query') {
+      req.validatedQuery = result.data as Record<string, unknown>;
+    } else {
+      req[part] = result.data;
+    }
     return next();
   };
 }

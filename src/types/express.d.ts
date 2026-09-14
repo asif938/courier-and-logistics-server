@@ -8,6 +8,7 @@ declare global {
         id: string;
         role: Role;
       };
+      validatedQuery?: Record<string, unknown>;
     }
   }
 }
