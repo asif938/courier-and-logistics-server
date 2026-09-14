@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const SHIPMENT_STATUSES = [
+export const SHIPMENT_STATUSES = [
   'CREATED',
   'PICKUP_SCHEDULED',
   'COURIER_ASSIGNED',
@@ -48,6 +48,24 @@ export const listShipmentsQuerySchema = z.object({
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
 
+export const assignCourierSchema = z.object({
+  courierId: z.string().cuid('Invalid courier id').optional(),
+});
+
+export const updateStatusSchema = z.object({
+  status: z.enum(SHIPMENT_STATUSES),
+  note: z.string().trim().max(500).optional(),
+  location: z.string().trim().max(200).optional(),
+});
+
+export const paginationQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+
 export type CreateShipmentInput = z.infer<typeof createShipmentSchema>;
 export type UpdateShipmentInput = z.infer<typeof updateShipmentSchema>;
 export type ListShipmentsQuery = z.infer<typeof listShipmentsQuerySchema>;
+export type AssignCourierInput = z.infer<typeof assignCourierSchema>;
+export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
+export type PaginationQuery = z.infer<typeof paginationQuerySchema>;

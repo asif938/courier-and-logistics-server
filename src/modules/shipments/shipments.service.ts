@@ -1,11 +1,18 @@
 import { prisma } from '../../config/prisma';
+import type { ShipmentStatus } from '../../generated/prisma/client';
 import { ApiError } from '../../utils/ApiError';
 import { buildPaginationMeta, toSkipTake } from '../../utils/pagination';
 import { generateTrackingNumber } from '../../utils/trackingNumber';
 import { calculateShipmentPrice } from '../pricing/pricing.service';
+import {
+  ACTIVE_COURIER_STATUSES,
+  CANCELLABLE_STATUSES,
+  getAllowedTargets,
+} from './shipment.stateMachine';
 import type {
   CreateShipmentInput,
   ListShipmentsQuery,
+  PaginationQuery,
   UpdateShipmentInput,
 } from './shipments.validation';
 
@@ -13,6 +20,8 @@ interface AuthUser {
   id: string;
   role: 'CUSTOMER' | 'COURIER' | 'ADMIN';
 }
+
+const COURIER_EARNING_RATE = 0.8;
 
 const courierSelect = { id: true, name: true, phone: true } as const;
 
@@ -170,4 +179,230 @@ export async function softDeleteShipment(user: AuthUser, shipmentId: string) {
     where: { id: shipmentId },
     data: { deletedAt: new Date() },
   });
+}
+
+export async function requestPickup(user: AuthUser, shipmentId: string) {
+  return prisma.$transaction(async (tx) => {
+    const shipment = await tx.shipment.findFirst({
+      where: { id: shipmentId, deletedAt: null, customerId: user.id },
+    });
+    if (!shipment) {
+      throw ApiError.notFound('Shipment not found');
+    }
+    if (shipment.status !== 'CREATED') {
+      throw ApiError.conflict('Pickup can only be requested for a newly created shipment');
+    }
+
+    return tx.shipment.update({
+      where: { id: shipmentId },
+      data: {
+        status: 'PICKUP_SCHEDULED',
+        statusHistory: {
+          create: [
+            {
+              status: 'PICKUP_SCHEDULED',
+              note: 'Pickup requested by customer',
+              actorUserId: user.id,
+            },
+          ],
+        },
+      },
+      include: shipmentInclude,
+    });
+  });
+}
+
+export async function assignCourier(adminUserId: string, shipmentId: string, courierId?: string) {
+  return prisma.$transaction(async (tx) => {
+    const shipment = await tx.shipment.findFirst({
+      where: { id: shipmentId, deletedAt: null },
+      include: { pickupAddress: true },
+    });
+    if (!shipment) {
+      throw ApiError.notFound('Shipment not found');
+    }
+    if (shipment.status !== 'PICKUP_SCHEDULED') {
+      throw ApiError.conflict('A courier can only be assigned once pickup has been scheduled');
+    }
+
+    let targetCourierId = courierId;
+    if (targetCourierId) {
+      const courier = await tx.user.findFirst({
+        where: { id: targetCourierId, role: 'COURIER', isActive: true, deletedAt: null },
+        include: { courierProfile: true },
+      });
+      if (!courier?.courierProfile) {
+        throw ApiError.badRequest('Courier not found');
+      }
+      if (!courier.courierProfile.isAvailable) {
+        throw ApiError.conflict('Courier is not available');
+      }
+    } else {
+      if (!shipment.pickupAddress.zoneId) {
+        throw ApiError.badRequest(
+          'Pickup address has no serviceable zone to match a courier against',
+        );
+      }
+      const candidate = await tx.courierProfile.findFirst({
+        where: {
+          zoneId: shipment.pickupAddress.zoneId,
+          isAvailable: true,
+          user: { isActive: true, deletedAt: null },
+        },
+        orderBy: { totalDeliveries: 'asc' },
+      });
+      if (!candidate) {
+        throw ApiError.conflict('No available courier found in the pickup zone');
+      }
+      targetCourierId = candidate.userId;
+    }
+
+    const claim = await tx.courierProfile.updateMany({
+      where: { userId: targetCourierId, isAvailable: true },
+      data: { isAvailable: false },
+    });
+    if (claim.count === 0) {
+      throw ApiError.conflict('Selected courier is no longer available');
+    }
+
+    return tx.shipment.update({
+      where: { id: shipmentId },
+      data: {
+        assignedCourierId: targetCourierId,
+        status: 'COURIER_ASSIGNED',
+        statusHistory: {
+          create: [
+            {
+              status: 'COURIER_ASSIGNED',
+              note: 'Courier assigned by dispatch',
+              actorUserId: adminUserId,
+            },
+          ],
+        },
+      },
+      include: shipmentInclude,
+    });
+  });
+}
+
+export async function updateShipmentStatus(
+  user: AuthUser,
+  shipmentId: string,
+  targetStatus: ShipmentStatus,
+  note?: string,
+  location?: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const shipment = await tx.shipment.findFirst({ where: { id: shipmentId, deletedAt: null } });
+    if (!shipment) {
+      throw ApiError.notFound('Shipment not found');
+    }
+    if (user.role === 'COURIER' && shipment.assignedCourierId !== user.id) {
+      throw ApiError.notFound('Shipment not found');
+    }
+
+    const allowedTargets = getAllowedTargets(shipment.status, shipment.failedAttemptCount);
+    if (!allowedTargets.includes(targetStatus)) {
+      throw ApiError.conflict(`Cannot transition from ${shipment.status} to ${targetStatus}`);
+    }
+
+    if (targetStatus === 'DELIVERED' && shipment.assignedCourierId) {
+      await tx.courierProfile.updateMany({
+        where: { userId: shipment.assignedCourierId },
+        data: { isAvailable: true, totalDeliveries: { increment: 1 } },
+      });
+      await tx.courierEarning.create({
+        data: {
+          courierId: shipment.assignedCourierId,
+          shipmentId: shipment.id,
+          amount: Math.round(Number(shipment.priceAmount) * COURIER_EARNING_RATE * 100) / 100,
+        },
+      });
+    } else if (targetStatus === 'RETURNED' && shipment.assignedCourierId) {
+      await tx.courierProfile.updateMany({
+        where: { userId: shipment.assignedCourierId },
+        data: { isAvailable: true },
+      });
+    }
+
+    return tx.shipment.update({
+      where: { id: shipmentId },
+      data: {
+        status: targetStatus,
+        ...(targetStatus === 'FAILED_DELIVERY_ATTEMPT' && {
+          failedAttemptCount: { increment: 1 },
+        }),
+        statusHistory: {
+          create: [
+            {
+              status: targetStatus,
+              note: note ?? `Status updated to ${targetStatus}`,
+              location,
+              actorUserId: user.id,
+            },
+          ],
+        },
+      },
+      include: shipmentInclude,
+    });
+  });
+}
+
+export async function cancelShipment(user: AuthUser, shipmentId: string) {
+  return prisma.$transaction(async (tx) => {
+    const shipment = await tx.shipment.findFirst({ where: { id: shipmentId, deletedAt: null } });
+    if (!shipment) {
+      throw ApiError.notFound('Shipment not found');
+    }
+    if (user.role === 'CUSTOMER' && shipment.customerId !== user.id) {
+      throw ApiError.notFound('Shipment not found');
+    }
+    if (!CANCELLABLE_STATUSES.includes(shipment.status)) {
+      throw ApiError.conflict('This shipment can no longer be cancelled');
+    }
+
+    if (shipment.assignedCourierId) {
+      await tx.courierProfile.updateMany({
+        where: { userId: shipment.assignedCourierId },
+        data: { isAvailable: true },
+      });
+    }
+
+    return tx.shipment.update({
+      where: { id: shipmentId },
+      data: {
+        status: 'CANCELLED',
+        statusHistory: {
+          create: [
+            {
+              status: 'CANCELLED',
+              note: `Shipment cancelled by ${user.role.toLowerCase()}`,
+              actorUserId: user.id,
+            },
+          ],
+        },
+      },
+      include: shipmentInclude,
+    });
+  });
+}
+
+export async function listMyAssignedShipments(courierId: string, query: PaginationQuery) {
+  const where = {
+    assignedCourierId: courierId,
+    deletedAt: null,
+    status: { in: ACTIVE_COURIER_STATUSES },
+  };
+
+  const [shipments, total] = await Promise.all([
+    prisma.shipment.findMany({
+      where,
+      include: shipmentInclude,
+      orderBy: { updatedAt: 'desc' },
+      ...toSkipTake(query),
+    }),
+    prisma.shipment.count({ where }),
+  ]);
+
+  return { shipments, meta: buildPaginationMeta(total, query) };
 }
