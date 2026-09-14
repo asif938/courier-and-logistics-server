@@ -6,8 +6,10 @@ import * as shipmentsController from './shipments.controller';
 import {
   assignCourierSchema,
   createShipmentSchema,
+  hubTransferSchema,
   listShipmentsQuerySchema,
   paginationQuerySchema,
+  searchShipmentsQuerySchema,
   updateShipmentSchema,
   updateStatusSchema,
 } from './shipments.validation';
@@ -24,12 +26,18 @@ router.post(
 );
 router.get('/', validate(listShipmentsQuerySchema, 'query'), shipmentsController.listShipments);
 router.get(
+  '/search',
+  validate(searchShipmentsQuerySchema, 'query'),
+  shipmentsController.searchShipments,
+);
+router.get(
   '/my-assigned',
   authorize('COURIER'),
   validate(paginationQuerySchema, 'query'),
   shipmentsController.myAssignedShipments,
 );
 router.get('/:id', shipmentsController.getShipment);
+router.get('/:id/tracking', shipmentsController.getTracking);
 router.patch(
   '/:id',
   authorize('CUSTOMER'),
@@ -52,5 +60,11 @@ router.patch(
   shipmentsController.updateStatus,
 );
 router.post('/:id/cancel', authorize('CUSTOMER', 'ADMIN'), shipmentsController.cancelShipment);
+router.post(
+  '/:id/hub-transfer',
+  authorize('ADMIN'),
+  validate(hubTransferSchema),
+  shipmentsController.recordHubTransfer,
+);
 
 export const shipmentRoutes = router;

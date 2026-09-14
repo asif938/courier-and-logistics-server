@@ -40,12 +40,19 @@ export const updateShipmentSchema = z
     message: 'At least one field must be provided',
   });
 
-export const listShipmentsQuerySchema = z.object({
+export const paginationQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+
+export const listShipmentsQuerySchema = paginationQuerySchema.extend({
   status: z.enum(SHIPMENT_STATUSES).optional(),
   sortBy: z.enum(['createdAt', 'updatedAt', 'priceAmount']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
+});
+
+export const searchShipmentsQuerySchema = paginationQuerySchema.extend({
+  q: z.string().trim().min(1, 'Search query is required').max(100),
 });
 
 export const assignCourierSchema = z.object({
@@ -58,14 +65,21 @@ export const updateStatusSchema = z.object({
   location: z.string().trim().max(200).optional(),
 });
 
-export const paginationQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
-});
+export const hubTransferSchema = z
+  .object({
+    fromHubId: z.string().cuid('Invalid origin hub id'),
+    toHubId: z.string().cuid('Invalid destination hub id'),
+  })
+  .refine((data) => data.fromHubId !== data.toHubId, {
+    message: 'fromHubId and toHubId must be different',
+    path: ['toHubId'],
+  });
 
 export type CreateShipmentInput = z.infer<typeof createShipmentSchema>;
 export type UpdateShipmentInput = z.infer<typeof updateShipmentSchema>;
 export type ListShipmentsQuery = z.infer<typeof listShipmentsQuerySchema>;
+export type SearchShipmentsQuery = z.infer<typeof searchShipmentsQuerySchema>;
 export type AssignCourierInput = z.infer<typeof assignCourierSchema>;
 export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
 export type PaginationQuery = z.infer<typeof paginationQuerySchema>;
+export type HubTransferInput = z.infer<typeof hubTransferSchema>;

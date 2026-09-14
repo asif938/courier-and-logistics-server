@@ -13,6 +13,7 @@ import type {
   CreateShipmentInput,
   ListShipmentsQuery,
   PaginationQuery,
+  SearchShipmentsQuery,
   UpdateShipmentInput,
 } from './shipments.validation';
 
@@ -100,6 +101,35 @@ export async function listShipments(user: AuthUser, query: ListShipmentsQuery) {
   return { shipments, meta: buildPaginationMeta(total, query) };
 }
 
+export async function searchShipments(user: AuthUser, query: SearchShipmentsQuery) {
+  const scope = {
+    ...(user.role === 'CUSTOMER' && { customerId: user.id }),
+    ...(user.role === 'COURIER' && { assignedCourierId: user.id }),
+  };
+
+  const where = {
+    deletedAt: null,
+    ...scope,
+    OR: [
+      { trackingNumber: { contains: query.q, mode: 'insensitive' as const } },
+      { deliveryAddress: { contactName: { contains: query.q, mode: 'insensitive' as const } } },
+      { deliveryAddress: { city: { contains: query.q, mode: 'insensitive' as const } } },
+    ],
+  };
+
+  const [shipments, total] = await Promise.all([
+    prisma.shipment.findMany({
+      where,
+      include: shipmentInclude,
+      orderBy: { createdAt: 'desc' },
+      ...toSkipTake(query),
+    }),
+    prisma.shipment.count({ where }),
+  ]);
+
+  return { shipments, meta: buildPaginationMeta(total, query) };
+}
+
 async function findAccessibleShipment(user: AuthUser, shipmentId: string) {
   const shipment = await prisma.shipment.findFirst({
     where: { id: shipmentId, deletedAt: null },
@@ -123,6 +153,21 @@ async function findAccessibleShipment(user: AuthUser, shipmentId: string) {
 
 export async function getShipmentById(user: AuthUser, shipmentId: string) {
   return findAccessibleShipment(user, shipmentId);
+}
+
+export async function getShipmentTracking(user: AuthUser, shipmentId: string) {
+  const shipment = await findAccessibleShipment(user, shipmentId);
+  const history = await prisma.shipmentStatusHistory.findMany({
+    where: { shipmentId: shipment.id },
+    orderBy: { createdAt: 'asc' },
+    include: { actor: { select: { id: true, name: true, role: true } } },
+  });
+
+  return {
+    trackingNumber: shipment.trackingNumber,
+    status: shipment.status,
+    history,
+  };
 }
 
 export async function updateShipment(
@@ -405,4 +450,58 @@ export async function listMyAssignedShipments(courierId: string, query: Paginati
   ]);
 
   return { shipments, meta: buildPaginationMeta(total, query) };
+}
+
+export async function recordHubTransfer(
+  adminUserId: string,
+  shipmentId: string,
+  fromHubId: string,
+  toHubId: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const [shipment, fromHub, toHub] = await Promise.all([
+      tx.shipment.findFirst({ where: { id: shipmentId, deletedAt: null } }),
+      tx.hub.findFirst({ where: { id: fromHubId, deletedAt: null } }),
+      tx.hub.findFirst({ where: { id: toHubId, deletedAt: null } }),
+    ]);
+
+    if (!shipment) {
+      throw ApiError.notFound('Shipment not found');
+    }
+    if (!fromHub) {
+      throw ApiError.badRequest('Origin hub not found');
+    }
+    if (!toHub) {
+      throw ApiError.badRequest('Destination hub not found');
+    }
+
+    await tx.hubTransfer.create({
+      data: {
+        shipmentId,
+        fromHubId,
+        toHubId,
+        status: 'ARRIVED',
+        arrivedAt: new Date(),
+      },
+    });
+
+    return tx.shipment.update({
+      where: { id: shipmentId },
+      data: {
+        currentHubId: toHubId,
+        ...(shipment.originHubId === null && { originHubId: fromHubId }),
+        statusHistory: {
+          create: [
+            {
+              status: shipment.status,
+              note: `Hub transfer: ${fromHub.name} -> ${toHub.name}`,
+              location: toHub.name,
+              actorUserId: adminUserId,
+            },
+          ],
+        },
+      },
+      include: shipmentInclude,
+    });
+  });
 }
