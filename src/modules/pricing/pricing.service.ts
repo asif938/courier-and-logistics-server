@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma';
-import type { ServiceType } from '../../generated/prisma/client';
+import { Prisma, type ServiceType } from '../../generated/prisma/client';
 import { ApiError } from '../../utils/ApiError';
+import type { CreatePricingRuleInput } from './pricing.validation';
 
 export interface PriceQuoteInput {
   originZoneId: string;
@@ -9,7 +10,7 @@ export interface PriceQuoteInput {
   weightKg: number;
 }
 
-export async function calculateShipmentPrice(input: PriceQuoteInput): Promise<number> {
+async function findApplicableRule(input: PriceQuoteInput) {
   const rule = await prisma.pricingRule.findFirst({
     where: {
       originZoneId: input.originZoneId,
@@ -28,6 +29,54 @@ export async function calculateShipmentPrice(input: PriceQuoteInput): Promise<nu
     );
   }
 
-  const price = Number(rule.basePrice) + Number(rule.perKgRate) * input.weightKg;
+  return rule;
+}
+
+function computePrice(basePrice: number, perKgRate: number, weightKg: number): number {
+  const price = basePrice + perKgRate * weightKg;
   return Math.round(price * 100) / 100;
+}
+
+export async function calculateShipmentPrice(input: PriceQuoteInput): Promise<number> {
+  const rule = await findApplicableRule(input);
+  return computePrice(Number(rule.basePrice), Number(rule.perKgRate), input.weightKg);
+}
+
+export async function getPriceQuote(input: PriceQuoteInput) {
+  const rule = await findApplicableRule(input);
+  const basePrice = Number(rule.basePrice);
+  const perKgRate = Number(rule.perKgRate);
+  return {
+    price: computePrice(basePrice, perKgRate, input.weightKg),
+    currency: 'USD',
+    basePrice,
+    perKgRate,
+    weightKg: input.weightKg,
+    serviceType: input.serviceType,
+  };
+}
+
+export async function createPricingRule(data: CreatePricingRuleInput) {
+  const [originZone, destinationZone] = await Promise.all([
+    prisma.zone.findFirst({ where: { id: data.originZoneId, deletedAt: null } }),
+    prisma.zone.findFirst({ where: { id: data.destinationZoneId, deletedAt: null } }),
+  ]);
+
+  if (!originZone) {
+    throw ApiError.badRequest('Origin zone not found');
+  }
+  if (!destinationZone) {
+    throw ApiError.badRequest('Destination zone not found');
+  }
+
+  try {
+    return await prisma.pricingRule.create({ data });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw ApiError.conflict(
+        'A pricing rule already exists for this route, service type, and weight tier',
+      );
+    }
+    throw error;
+  }
 }
