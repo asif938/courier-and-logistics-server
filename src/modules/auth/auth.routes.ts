@@ -6,8 +6,6 @@ import { loginSchema, logoutSchema, refreshTokenSchema, registerSchema } from '.
 
 const router = Router();
 
-// Tighter than the global API limiter - these endpoints are the direct target
-// of credential-stuffing / registration-spam abuse.
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,

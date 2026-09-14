@@ -6,8 +6,6 @@ import { type Prisma, PrismaClient, type ServiceType } from '../src/generated/pr
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-// Demo credentials for evaluation - same password across every seeded account
-// so all 3 roles (CUSTOMER, COURIER, ADMIN) can be exercised once auth lands.
 const DEMO_PASSWORD = 'Passw0rd!123';
 
 const SERVICE_TYPES: ServiceType[] = ['STANDARD', 'EXPRESS'];
@@ -19,7 +17,6 @@ const WEIGHT_TIERS = [
 async function main() {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 12);
 
-  // ---- Zones -------------------------------------------------------------
   const zoneSeeds = [
     { name: 'New York Metro', city: 'New York', region: 'NY' },
     { name: 'Los Angeles Metro', city: 'Los Angeles', region: 'CA' },
@@ -30,7 +27,6 @@ async function main() {
   );
   const [nyZone, laZone, chiZone] = zones;
 
-  // ---- Hubs ----------------------------------------------------------------
   const hubSeeds = [
     {
       code: 'NYC-HUB-01',
@@ -56,9 +52,6 @@ async function main() {
   );
   const [nyHub, laHub] = hubs;
 
-  // ---- Pricing rules: base fare depends on same-zone vs cross-zone, ---------
-  // service type, and weight tier. Generated rather than hand-listed since
-  // it's a full cross-product (3 zones x 3 zones x 2 service types x 2 tiers).
   let pricingRuleCount = 0;
   for (const origin of zones) {
     for (const destination of zones) {
@@ -94,14 +87,12 @@ async function main() {
     }
   }
 
-  // ---- Organization ----------------------------------------------------------
   const organization = await prisma.organization.upsert({
     where: { name: 'Acme Retail Co.' },
     update: {},
     create: { name: 'Acme Retail Co.' },
   });
 
-  // ---- Users: 1 admin, 2 customers, 2 couriers -------------------------------
   await prisma.user.upsert({
     where: { email: 'admin@courierlogistics.dev' },
     update: {},
@@ -165,7 +156,6 @@ async function main() {
     },
   });
 
-  // ---- Addresses --------------------------------------------------------------
   async function findOrCreateAddress(
     userId: string,
     label: string,
@@ -209,7 +199,6 @@ async function main() {
     contactPhone: '+1-310-555-0177',
   });
 
-  // ---- Shipments: one freshly created, one fully delivered -------------------
   await prisma.shipment.upsert({
     where: { trackingNumber: 'CLP-DEMO-0001' },
     update: {},

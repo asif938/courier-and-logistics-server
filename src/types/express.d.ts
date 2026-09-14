@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import type { Role } from '../generated/prisma/client';
 
 declare global {
@@ -9,4 +10,8 @@ declare global {
       };
     }
   }
+}
+
+export interface AuthenticatedRequest extends Request {
+  user: NonNullable<Request['user']>;
 }

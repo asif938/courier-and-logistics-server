@@ -4,10 +4,6 @@ import { ApiError } from '../utils/ApiError';
 import { catchAsync } from '../utils/catchAsync';
 import { verifyAccessToken } from '../utils/jwt';
 
-// Looks the user up on every request (rather than trusting the JWT payload alone)
-// so a deactivated/deleted account or a role change is honored immediately instead
-// of only after the short-lived access token expires. Day 3's Redis caching is the
-// natural place to cut the per-request DB round trip this costs.
 export const authenticate = catchAsync(async (req: Request, _res: Response, next: NextFunction) => {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {

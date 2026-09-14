@@ -99,8 +99,6 @@ export async function refreshTokens(refreshToken: string) {
     throw ApiError.unauthorized('Invalid or expired refresh token');
   }
 
-  // Rotate: revoke the presented token and issue a fresh pair, in one transaction
-  // so a crash between "revoke" and "issue" can never leave the caller locked out.
   const tokens = await prisma.$transaction(async (tx) => {
     await tx.refreshToken.update({
       where: { id: stored.id },

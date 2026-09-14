@@ -13,8 +13,6 @@ export const registerSchema = z.object({
   email: z.email('Invalid email address').toLowerCase().trim(),
   password: passwordSchema,
   phone: z.string().trim().min(7).max(20).optional(),
-  // Registration can only self-select CUSTOMER or COURIER - ADMIN is never
-  // client-assignable and is only ever granted by an existing admin.
   role: z.enum(['CUSTOMER', 'COURIER']).default('CUSTOMER'),
 });
 

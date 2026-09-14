@@ -2,7 +2,6 @@ import type { NextFunction, Request, Response } from 'express';
 import type { Role } from '../generated/prisma/client';
 import { ApiError } from '../utils/ApiError';
 
-// Must run after `authenticate` on the route so req.user is already populated.
 export function authorize(...roles: Role[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {
