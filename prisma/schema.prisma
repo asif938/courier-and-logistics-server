@@ -131,6 +131,7 @@ model CourierProfile {
 
   @@index([zoneId])
   @@index([isAvailable])
+  @@index([zoneId, isAvailable])
 }
 
 model Zone {
@@ -262,6 +263,8 @@ model Shipment {
   @@index([assignedCourierId])
   @@index([status])
   @@index([organizationId])
+  @@index([customerId, deletedAt])
+  @@index([assignedCourierId, deletedAt])
 }
 
 model ShipmentStatusHistory {
@@ -351,6 +354,7 @@ model Notification {
 
   @@index([userId])
   @@index([isRead])
+  @@index([userId, isRead])
 }
 
 model AuditLog {

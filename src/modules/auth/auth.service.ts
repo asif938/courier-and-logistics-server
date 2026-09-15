@@ -11,6 +11,7 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from '../../utils/jwt';
+import { withUniqueConstraintHandling } from '../../utils/prismaErrors';
 import type { LoginInput, RegisterInput } from './auth.validation';
 
 const googleClient = new OAuth2Client(env.googleClientId);
@@ -44,15 +45,19 @@ export async function registerUser(input: RegisterInput) {
   }
 
   const passwordHash = await hashPassword(input.password);
-  const user = await prisma.user.create({
-    data: {
-      name: input.name,
-      email: input.email,
-      passwordHash,
-      phone: input.phone,
-      role: input.role,
-    },
-  });
+  const user = await withUniqueConstraintHandling(
+    () =>
+      prisma.user.create({
+        data: {
+          name: input.name,
+          email: input.email,
+          passwordHash,
+          phone: input.phone,
+          role: input.role,
+        },
+      }),
+    'An account with this email already exists',
+  );
 
   return toSafeUser(user);
 }

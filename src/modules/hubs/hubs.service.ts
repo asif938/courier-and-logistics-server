@@ -1,21 +1,18 @@
 import { prisma } from '../../config/prisma';
 import { ApiError } from '../../utils/ApiError';
+import { withUniqueConstraintHandling } from '../../utils/prismaErrors';
 import type { CreateHubInput, ListHubsQuery, UpdateHubInput } from './hubs.validation';
 
 export async function createHub(data: CreateHubInput) {
-  const [zone, existingCode] = await Promise.all([
-    prisma.zone.findFirst({ where: { id: data.zoneId, deletedAt: null } }),
-    prisma.hub.findUnique({ where: { code: data.code } }),
-  ]);
-
+  const zone = await prisma.zone.findFirst({ where: { id: data.zoneId, deletedAt: null } });
   if (!zone) {
     throw ApiError.badRequest('Zone not found');
   }
-  if (existingCode) {
-    throw ApiError.conflict('A hub with this code already exists');
-  }
 
-  return prisma.hub.create({ data });
+  return withUniqueConstraintHandling(
+    () => prisma.hub.create({ data }),
+    'A hub with this code already exists',
+  );
 }
 
 export function listHubs(query: ListHubsQuery) {

@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma';
-import { Prisma, type ServiceType } from '../../generated/prisma/client';
+import type { ServiceType } from '../../generated/prisma/client';
 import { ApiError } from '../../utils/ApiError';
+import { withUniqueConstraintHandling } from '../../utils/prismaErrors';
 import type { CreatePricingRuleInput } from './pricing.validation';
 
 export interface PriceQuoteInput {
@@ -69,14 +70,8 @@ export async function createPricingRule(data: CreatePricingRuleInput) {
     throw ApiError.badRequest('Destination zone not found');
   }
 
-  try {
-    return await prisma.pricingRule.create({ data });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      throw ApiError.conflict(
-        'A pricing rule already exists for this route, service type, and weight tier',
-      );
-    }
-    throw error;
-  }
+  return withUniqueConstraintHandling(
+    () => prisma.pricingRule.create({ data }),
+    'A pricing rule already exists for this route, service type, and weight tier',
+  );
 }
