@@ -1,3 +1,5 @@
+import { OAuth2Client } from 'google-auth-library';
+import { env } from '../../config/env';
 import { prisma } from '../../config/prisma';
 import type { User } from '../../generated/prisma/client';
 import { ApiError } from '../../utils/ApiError';
@@ -10,6 +12,8 @@ import {
   verifyRefreshToken,
 } from '../../utils/jwt';
 import type { LoginInput, RegisterInput } from './auth.validation';
+
+const googleClient = new OAuth2Client(env.googleClientId);
 
 export type SafeUser = Omit<User, 'passwordHash' | 'googleId'>;
 
@@ -68,6 +72,59 @@ export async function loginUser(input: LoginInput) {
   const passwordMatches = await comparePassword(input.password, user.passwordHash);
   if (!passwordMatches) {
     throw ApiError.unauthorized('Invalid email or password');
+  }
+
+  const tokens = await issueTokenPair(user.id, user.role);
+  return { user: toSafeUser(user), ...tokens };
+}
+
+export async function loginWithGoogle(idToken: string) {
+  let payload: { sub: string; email: string; name?: string; email_verified?: boolean };
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: env.googleClientId,
+    });
+    const verified = ticket.getPayload();
+    if (!verified?.email) {
+      throw new Error('Google token payload is missing an email');
+    }
+    payload = {
+      sub: verified.sub,
+      email: verified.email,
+      name: verified.name,
+      email_verified: verified.email_verified,
+    };
+  } catch {
+    throw ApiError.unauthorized('Invalid Google ID token');
+  }
+
+  if (!payload.email_verified) {
+    throw ApiError.unauthorized('Google account email is not verified');
+  }
+
+  let user = await prisma.user.findFirst({
+    where: { OR: [{ googleId: payload.sub }, { email: payload.email }], deletedAt: null },
+  });
+
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        name: payload.name ?? payload.email.split('@')[0],
+        email: payload.email,
+        googleId: payload.sub,
+        role: 'CUSTOMER',
+      },
+    });
+  } else if (!user.googleId) {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { googleId: payload.sub },
+    });
+  }
+
+  if (!user.isActive) {
+    throw ApiError.forbidden('This account has been deactivated');
   }
 
   const tokens = await issueTokenPair(user.id, user.role);

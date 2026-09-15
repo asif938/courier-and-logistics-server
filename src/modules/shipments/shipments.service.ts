@@ -238,6 +238,13 @@ export async function requestPickup(user: AuthUser, shipmentId: string) {
       throw ApiError.conflict('Pickup can only be requested for a newly created shipment');
     }
 
+    const payment = await tx.payment.findFirst({
+      where: { shipmentId, status: 'SUCCEEDED' },
+    });
+    if (!payment) {
+      throw ApiError.conflict('This shipment must be paid for before pickup can be scheduled');
+    }
+
     return tx.shipment.update({
       where: { id: shipmentId },
       data: {
@@ -310,7 +317,7 @@ export async function assignCourier(adminUserId: string, shipmentId: string, cou
       throw ApiError.conflict('Selected courier is no longer available');
     }
 
-    return tx.shipment.update({
+    const updated = await tx.shipment.update({
       where: { id: shipmentId },
       data: {
         assignedCourierId: targetCourierId,
@@ -327,6 +334,25 @@ export async function assignCourier(adminUserId: string, shipmentId: string, cou
       },
       include: shipmentInclude,
     });
+
+    await tx.notification.createMany({
+      data: [
+        {
+          userId: shipment.customerId,
+          type: 'SHIPMENT_UPDATE',
+          title: 'Courier assigned',
+          message: `A courier has been assigned to shipment ${updated.trackingNumber}`,
+        },
+        {
+          userId: targetCourierId,
+          type: 'ASSIGNMENT',
+          title: 'New delivery assigned',
+          message: `You have been assigned shipment ${updated.trackingNumber}`,
+        },
+      ],
+    });
+
+    return updated;
   });
 }
 
@@ -370,7 +396,7 @@ export async function updateShipmentStatus(
       });
     }
 
-    return tx.shipment.update({
+    const updated = await tx.shipment.update({
       where: { id: shipmentId },
       data: {
         status: targetStatus,
@@ -390,6 +416,17 @@ export async function updateShipmentStatus(
       },
       include: shipmentInclude,
     });
+
+    await tx.notification.create({
+      data: {
+        userId: shipment.customerId,
+        type: 'SHIPMENT_UPDATE',
+        title: 'Shipment status updated',
+        message: `Shipment ${updated.trackingNumber} is now ${targetStatus.replaceAll('_', ' ').toLowerCase()}`,
+      },
+    });
+
+    return updated;
   });
 }
 
@@ -413,7 +450,7 @@ export async function cancelShipment(user: AuthUser, shipmentId: string) {
       });
     }
 
-    return tx.shipment.update({
+    const updated = await tx.shipment.update({
       where: { id: shipmentId },
       data: {
         status: 'CANCELLED',
@@ -429,6 +466,23 @@ export async function cancelShipment(user: AuthUser, shipmentId: string) {
       },
       include: shipmentInclude,
     });
+
+    const notifyUserIds = [
+      ...(user.role === 'ADMIN' ? [shipment.customerId] : []),
+      ...(shipment.assignedCourierId ? [shipment.assignedCourierId] : []),
+    ];
+    if (notifyUserIds.length > 0) {
+      await tx.notification.createMany({
+        data: notifyUserIds.map((userId) => ({
+          userId,
+          type: 'SHIPMENT_UPDATE' as const,
+          title: 'Shipment cancelled',
+          message: `Shipment ${updated.trackingNumber} has been cancelled`,
+        })),
+      });
+    }
+
+    return updated;
   });
 }
 

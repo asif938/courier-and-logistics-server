@@ -22,6 +22,10 @@ export const env = {
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '30d',
   },
   bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS ?? 12),
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
+  stripeSecretKey: required('STRIPE_SECRET_KEY'),
+  stripeWebhookSecret: required('STRIPE_WEBHOOK_SECRET'),
+  clientUrl: process.env.CLIENT_URL ?? 'http://localhost:3000',
 } as const;
 
 export { required };

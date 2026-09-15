@@ -1,20 +1,7 @@
 import { prisma } from '../../config/prisma';
-import type { Prisma } from '../../generated/prisma/client';
 import { ApiError } from '../../utils/ApiError';
+import { safeUserSelect } from '../../utils/safeUserSelect';
 import type { CreateAddressInput, UpdateProfileInput } from './users.validation';
-
-const safeUserSelect = {
-  id: true,
-  name: true,
-  email: true,
-  phone: true,
-  role: true,
-  isActive: true,
-  organizationId: true,
-  createdAt: true,
-  updatedAt: true,
-  deletedAt: true,
-} satisfies Prisma.UserSelect;
 
 export async function getMyProfile(userId: string) {
   const user = await prisma.user.findUnique({
