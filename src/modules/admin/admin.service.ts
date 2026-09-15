@@ -1,9 +1,13 @@
 import { prisma } from '../../config/prisma';
 import { ApiError } from '../../utils/ApiError';
 import { recordAuditLog } from '../../utils/auditLog';
+import { getOrSetCache } from '../../utils/cache';
 import { buildPaginationMeta, toSkipTake } from '../../utils/pagination';
 import { safeUserSelect } from '../../utils/safeUserSelect';
 import type { ListAuditLogsQuery, ListUsersQuery } from './admin.validation';
+
+const DASHBOARD_STATS_CACHE_KEY = 'admin:dashboard-stats';
+const DASHBOARD_STATS_CACHE_TTL_SECONDS = 30;
 
 export async function listUsers(query: ListUsersQuery) {
   const where = {
@@ -109,6 +113,12 @@ export async function updateUserStatus(
 }
 
 export async function getDashboardStats() {
+  return getOrSetCache(DASHBOARD_STATS_CACHE_KEY, DASHBOARD_STATS_CACHE_TTL_SECONDS, () =>
+    computeDashboardStats(),
+  );
+}
+
+async function computeDashboardStats() {
   const [statusCounts, revenueAgg, courierAvailability, totalUsers, totalShipments] =
     await Promise.all([
       prisma.shipment.groupBy({

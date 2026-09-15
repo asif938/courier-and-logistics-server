@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import { redisRateLimit } from '../../middlewares/redisRateLimit.middleware';
 import { validate } from '../../middlewares/validate.middleware';
 import * as authController from './auth.controller';
 import {
@@ -12,19 +12,14 @@ import {
 
 const router = Router();
 
-const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
+router.use(
+  redisRateLimit({
+    windowSeconds: 15 * 60,
+    limit: 20,
+    keyPrefix: 'auth',
     message: 'Too many auth requests, please try again later.',
-    errors: [],
-  },
-});
-
-router.use(authRateLimiter);
+  }),
+);
 
 router.post('/register', validate(registerSchema), authController.register);
 router.post('/login', validate(loginSchema), authController.login);

@@ -2,12 +2,12 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
-import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { env } from './config/env';
 import { errorHandler } from './middlewares/errorHandler.middleware';
 import { notFoundHandler } from './middlewares/notFound.middleware';
+import { redisRateLimit } from './middlewares/redisRateLimit.middleware';
 import { stripeWebhook } from './modules/payments/payments.controller';
 import { v1Router } from './routes/v1';
 
@@ -33,18 +33,15 @@ app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-const apiRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
+app.use(
+  env.apiBasePath,
+  redisRateLimit({
+    windowSeconds: 15 * 60,
+    limit: 300,
+    keyPrefix: 'api',
     message: 'Too many requests, please try again later.',
-    errors: [],
-  },
-});
-app.use(env.apiBasePath, apiRateLimiter);
+  }),
+);
 
 app.use(env.apiBasePath, v1Router);
 

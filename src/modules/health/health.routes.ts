@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../../config/prisma';
+import { isRedisReady } from '../../config/redis';
 import { sendError, sendSuccess } from '../../utils/ApiResponse';
 
 const router = Router();
@@ -20,6 +21,7 @@ router.get('/', async (_req, res) => {
       uptimeSeconds: process.uptime(),
       timestamp: new Date().toISOString(),
       database: 'connected',
+      redis: isRedisReady() ? 'connected' : 'disconnected',
     },
   });
 });
