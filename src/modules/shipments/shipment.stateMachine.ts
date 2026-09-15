@@ -35,6 +35,12 @@ export const ACTIVE_COURIER_STATUSES: ShipmentStatus[] = [
   'RETURN_TO_SENDER',
 ];
 
+export const HUB_TRANSFER_ELIGIBLE_STATUSES: ShipmentStatus[] = [
+  'PICKED_UP',
+  'AT_ORIGIN_HUB',
+  'IN_TRANSIT',
+];
+
 export function getAllowedTargets(
   status: ShipmentStatus,
   failedAttemptCount: number,

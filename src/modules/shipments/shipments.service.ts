@@ -8,6 +8,7 @@ import {
   ACTIVE_COURIER_STATUSES,
   CANCELLABLE_STATUSES,
   getAllowedTargets,
+  HUB_TRANSFER_ELIGIBLE_STATUSES,
 } from './shipment.stateMachine';
 import type {
   CreateShipmentInput,
@@ -35,9 +36,10 @@ const shipmentInclude = {
 const PRE_PICKUP_STATUSES = ['CREATED', 'PICKUP_SCHEDULED'] as const;
 
 export async function createShipment(customerId: string, input: CreateShipmentInput) {
-  const [pickup, delivery] = await Promise.all([
+  const [pickup, delivery, customer] = await Promise.all([
     prisma.address.findFirst({ where: { id: input.pickupAddressId, userId: customerId } }),
     prisma.address.findFirst({ where: { id: input.deliveryAddressId, userId: customerId } }),
+    prisma.user.findUnique({ where: { id: customerId }, select: { organizationId: true } }),
   ]);
 
   if (!pickup) {
@@ -63,6 +65,7 @@ export async function createShipment(customerId: string, input: CreateShipmentIn
     data: {
       trackingNumber: generateTrackingNumber(),
       customerId,
+      organizationId: customer?.organizationId,
       pickupAddressId: pickup.id,
       deliveryAddressId: delivery.id,
       serviceType: input.serviceType,
@@ -377,6 +380,13 @@ export async function updateShipmentStatus(
       throw ApiError.conflict(`Cannot transition from ${shipment.status} to ${targetStatus}`);
     }
 
+    if (
+      (targetStatus === 'FAILED_DELIVERY_ATTEMPT' || targetStatus === 'RETURN_TO_SENDER') &&
+      !note?.trim()
+    ) {
+      throw ApiError.badRequest(`A note explaining the reason is required for ${targetStatus}`);
+    }
+
     if (targetStatus === 'DELIVERED' && shipment.assignedCourierId) {
       await tx.courierProfile.updateMany({
         where: { userId: shipment.assignedCourierId },
@@ -403,6 +413,7 @@ export async function updateShipmentStatus(
         ...(targetStatus === 'FAILED_DELIVERY_ATTEMPT' && {
           failedAttemptCount: { increment: 1 },
         }),
+        ...(targetStatus === 'RETURN_TO_SENDER' && { returnReason: note }),
         statusHistory: {
           create: [
             {
@@ -527,6 +538,14 @@ export async function recordHubTransfer(
     }
     if (!toHub) {
       throw ApiError.badRequest('Destination hub not found');
+    }
+    if (!HUB_TRANSFER_ELIGIBLE_STATUSES.includes(shipment.status)) {
+      throw ApiError.conflict(
+        `A hub transfer cannot be recorded while the shipment is ${shipment.status}`,
+      );
+    }
+    if (shipment.currentHubId && shipment.currentHubId !== fromHubId) {
+      throw ApiError.conflict("fromHubId does not match the shipment's current hub location");
     }
 
     await tx.hubTransfer.create({
