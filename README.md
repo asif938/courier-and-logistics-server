@@ -22,7 +22,7 @@ cp .env.example .env         # fill in DATABASE_URL/DIRECT_URL (Neon), JWT secre
 npm run prisma:generate       # generate the Prisma client
 npm run prisma:migrate         # apply migrations (interactive; use prisma:deploy in CI/non-interactive shells)
 npm run db:seed                 # seed zones, hubs, pricing rules, demo users, sample shipments
-npm run dev                      # ts-node-dev, hot reload
+npm run dev                      # tsx watch, hot reload
 npm run build && npm start        # production build
 npm run lint                       # biome check
 npm test                            # integration test suite (Vitest + Supertest, hits the real DB/Stripe)
