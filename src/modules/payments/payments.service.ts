@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import { env } from '../../config/env';
 import { prisma } from '../../config/prisma';
 import { stripe } from '../../config/stripe';
+import type { PaymentStatus } from '../../generated/prisma/client';
 import { ApiError } from '../../utils/ApiError';
 import { buildPaginationMeta, toSkipTake } from '../../utils/pagination';
 import type { ListPaymentsQuery } from './payments.validation';
@@ -115,6 +116,42 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string) {
   }
 }
 
+interface ReconcilableFields {
+  id: string;
+  status: PaymentStatus;
+  stripeSessionId: string | null;
+}
+
+async function reconcilePendingPayment<T extends ReconcilableFields>(payment: T): Promise<T> {
+  if (payment.status !== 'PENDING' || !payment.stripeSessionId) {
+    return payment;
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(payment.stripeSessionId);
+
+    if (session.payment_status === 'paid') {
+      const paidAt = new Date();
+      const stripePaymentIntentId =
+        typeof session.payment_intent === 'string' ? session.payment_intent : null;
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'SUCCEEDED', paidAt, stripePaymentIntentId },
+      });
+      return { ...payment, status: 'SUCCEEDED', paidAt, stripePaymentIntentId };
+    }
+
+    if (session.status === 'expired') {
+      await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+      return { ...payment, status: 'FAILED' };
+    }
+  } catch {
+    return payment;
+  }
+
+  return payment;
+}
+
 async function findAccessiblePayment(user: AuthUser, paymentId: string) {
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
@@ -128,11 +165,24 @@ async function findAccessiblePayment(user: AuthUser, paymentId: string) {
     throw ApiError.notFound('Payment not found');
   }
 
-  return payment;
+  return reconcilePendingPayment(payment);
 }
 
 export async function getPaymentById(user: AuthUser, paymentId: string) {
   return findAccessiblePayment(user, paymentId);
+}
+
+export async function syncShipmentPaymentStatus(shipmentId: string): Promise<boolean> {
+  const latestPayment = await prisma.payment.findFirst({
+    where: { shipmentId },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!latestPayment) {
+    return false;
+  }
+
+  const reconciled = await reconcilePendingPayment(latestPayment);
+  return reconciled.status === 'SUCCEEDED';
 }
 
 export async function listPayments(user: AuthUser, query: ListPaymentsQuery) {

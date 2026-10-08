@@ -3,6 +3,7 @@ import type { ShipmentStatus } from '../../generated/prisma/client';
 import { ApiError } from '../../utils/ApiError';
 import { buildPaginationMeta, toSkipTake } from '../../utils/pagination';
 import { generateTrackingNumber } from '../../utils/trackingNumber';
+import { syncShipmentPaymentStatus } from '../payments/payments.service';
 import { calculateShipmentPrice } from '../pricing/pricing.service';
 import {
   ACTIVE_COURIER_STATUSES,
@@ -230,6 +231,8 @@ export async function softDeleteShipment(user: AuthUser, shipmentId: string) {
 }
 
 export async function requestPickup(user: AuthUser, shipmentId: string) {
+  await syncShipmentPaymentStatus(shipmentId);
+
   return prisma.$transaction(async (tx) => {
     const shipment = await tx.shipment.findFirst({
       where: { id: shipmentId, deletedAt: null, customerId: user.id },
