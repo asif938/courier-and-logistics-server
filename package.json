@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsup",
     "start": "node dist/server.js",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
@@ -63,6 +63,7 @@
     "@types/supertest": "^7.2.1",
     "prisma": "^7.10.0",
     "supertest": "^7.2.2",
+    "tsup": "^8.5.1",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
