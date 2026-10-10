@@ -9,3 +9,5 @@ generated/
 docs
 
 /src/generated/prisma
+
+.vercel
