@@ -4,11 +4,6 @@ A backend-only RESTful API for a courier & logistics platform: shipment creation
 
 > **Status:** Core platform complete — 64 endpoints across auth (email/password + Google), users, zones, hubs, pricing, shipments (full state machine), payments (live Stripe), couriers, notifications, and admin (RBAC, dashboard stats, audit logs). Backed by an automated integration test suite.
 
-## Docs
-
-- [`docs/01-roles-and-permissions.md`](docs/01-roles-and-permissions.md) — the 3 fixed roles (Customer, Courier, Admin) and exactly what each can do.
-- [`docs/02-api-plan.md`](docs/02-api-plan.md) — the full endpoint plan mapped to the mandatory API categories.
-- [`docs/03-erd.md`](docs/03-erd.md) — entities, relationships, ERD, and the shipment status state machine.
 
 ## Tech stack
 
