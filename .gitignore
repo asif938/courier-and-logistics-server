@@ -7,6 +7,7 @@ coverage/
 .DS_Store
 generated/
 docs
+postman
 
 /src/generated/prisma
 

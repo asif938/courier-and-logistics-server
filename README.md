@@ -2,7 +2,7 @@
 
 A backend-only RESTful API for a courier & logistics platform: shipment creation, courier assignment, hub-to-hub transit, delivery tracking, pricing, real Stripe payments, notifications, and courier earnings. No frontend UI — exercised via Postman.
 
-> **Status:** Core platform complete — 64 endpoints across auth (email/password + Google), users, zones, hubs, pricing, shipments (full state machine), payments (live Stripe), couriers, notifications, and admin (RBAC, dashboard stats, audit logs). Backed by an automated integration test suite and a runnable Postman collection.
+> **Status:** Core platform complete — 64 endpoints across auth (email/password + Google), users, zones, hubs, pricing, shipments (full state machine), payments (live Stripe), couriers, notifications, and admin (RBAC, dashboard stats, audit logs). Backed by an automated integration test suite.
 
 ## Docs
 
@@ -32,18 +32,15 @@ Health check: `GET /api/v1/health` (verifies the database connection; reports Re
 
 ## API documentation (Postman)
 
-A ready-to-import Postman collection lives in [`postman/`](postman/):
-
-- `courier-logistics.postman_collection.json` — all 64 endpoints, organized into folders by resource (Auth, Users, Zones, Hubs, Pricing, Shipments, Couriers, Notifications, Payments, Admin), plus a final **End-to-End Demo** folder that runs the complete paid shipment lifecycle (create → pay via a real Stripe Checkout Session → pickup → courier auto-assignment → full status transitions → delivered → earnings) top to bottom.
-- `courier-logistics.postman_environment.json` — sets `baseUrl` (defaults to `http://localhost:5000/api/v1`).
-
-Import both into Postman, select the environment, and either run individual requests or use **Run Collection** for the whole suite. Login requests automatically capture access/refresh tokens into collection variables, so downstream requests authenticate themselves — no manual copy-pasting of tokens. The `Payments / Initiate Payment` and `End-to-End Demo` requests create a real Stripe test-mode Checkout Session; open the returned `checkoutUrl` in a browser and pay with `4242 4242 4242 4242` (any future expiry/CVC) to complete a payment for real.
-
-The collection is generated from `scripts/generate-postman.ts` (so it can never drift silently out of sync by hand-editing) and was verified end-to-end with `newman` against a live server before being committed — every request passes. Regenerate after adding or changing routes:
+The Postman collection is generated locally, not committed to this repo:
 
 ```bash
 npm run postman:generate
 ```
+
+This writes `postman/courier-logistics.postman_collection.json` and `postman/courier-logistics.postman_environment.json` (both gitignored) from `scripts/generate-postman.ts` — all 64 endpoints, organized into folders by resource (Auth, Users, Zones, Hubs, Pricing, Shipments, Couriers, Notifications, Payments, Admin), plus a final **End-to-End Demo** folder that runs the complete paid shipment lifecycle (create → pay via a real Stripe Checkout Session → pickup → courier auto-assignment → full status transitions → delivered → earnings) top to bottom. The environment sets `baseUrl` (defaults to `http://localhost:5000/api/v1`).
+
+Import both into Postman, select the environment, and either run individual requests or use **Run Collection** for the whole suite. Login requests automatically capture access/refresh tokens into collection variables, so downstream requests authenticate themselves — no manual copy-pasting of tokens. The `Payments / Initiate Payment` and `End-to-End Demo` requests create a real Stripe test-mode Checkout Session; open the returned `checkoutUrl` in a browser and pay with `4242 4242 4242 4242` (any future expiry/CVC) to complete a payment for real.
 
 ## Project structure
 
@@ -52,7 +49,7 @@ prisma/
   schema.prisma          # data model - see docs/03-erd.md for the rationale
   migrations/              # applied, checked-in SQL migrations
   seed.ts                    # zones, hubs, pricing rules, demo users, sample shipments
-postman/                  # generated Postman collection + environment (see above)
+postman/                  # generated Postman collection + environment (gitignored, see above)
 scripts/
   generate-postman.ts       # source of truth for the Postman collection
   cleanup-postman-artifacts.ts  # removes data created by running the collection against a shared DB
