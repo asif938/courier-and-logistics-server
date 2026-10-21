@@ -1,7 +1,12 @@
 import { prisma } from '../../config/prisma';
 import { ApiError } from '../../utils/ApiError';
+import { withForeignKeyConstraintHandling } from '../../utils/prismaErrors';
 import { safeUserSelect } from '../../utils/safeUserSelect';
-import type { CreateAddressInput, UpdateProfileInput } from './users.validation';
+import type {
+  CreateAddressInput,
+  UpdateAddressInput,
+  UpdateProfileInput,
+} from './users.validation';
 
 export async function getMyProfile(userId: string) {
   const user = await prisma.user.findUnique({
@@ -38,4 +43,23 @@ export async function listMyAddresses(userId: string) {
     where: { userId },
     orderBy: { createdAt: 'desc' },
   });
+}
+
+export async function updateMyAddress(userId: string, addressId: string, data: UpdateAddressInput) {
+  const address = await prisma.address.findFirst({ where: { id: addressId, userId } });
+  if (!address) {
+    throw ApiError.notFound('Address not found');
+  }
+  return prisma.address.update({ where: { id: addressId }, data });
+}
+
+export async function deleteMyAddress(userId: string, addressId: string) {
+  const address = await prisma.address.findFirst({ where: { id: addressId, userId } });
+  if (!address) {
+    throw ApiError.notFound('Address not found');
+  }
+  await withForeignKeyConstraintHandling(
+    () => prisma.address.delete({ where: { id: addressId } }),
+    'This address is used by one or more shipments and cannot be deleted',
+  );
 }

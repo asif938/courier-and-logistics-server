@@ -27,3 +27,17 @@ export const listAddresses = catchAsync(async (req: AuthenticatedRequest, res: R
   const addresses = await usersService.listMyAddresses(req.user.id);
   return sendSuccess(res, { data: { addresses } });
 });
+
+export const updateAddress = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  const address = await usersService.updateMyAddress(
+    req.user.id,
+    req.params.id as string,
+    req.body,
+  );
+  return sendSuccess(res, { message: 'Address updated successfully', data: { address } });
+});
+
+export const deleteAddress = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  await usersService.deleteMyAddress(req.user.id, req.params.id as string);
+  return sendSuccess(res, { message: 'Address deleted successfully' });
+});

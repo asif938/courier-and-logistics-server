@@ -14,3 +14,17 @@ export async function withUniqueConstraintHandling<T>(
     throw error;
   }
 }
+
+export async function withForeignKeyConstraintHandling<T>(
+  operation: () => Promise<T>,
+  conflictMessage: string,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      throw ApiError.conflict(conflictMessage);
+    }
+    throw error;
+  }
+}
