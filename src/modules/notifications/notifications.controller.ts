@@ -21,3 +21,8 @@ export const markAsRead = catchAsync(async (req: AuthenticatedRequest, res: Resp
   );
   return sendSuccess(res, { message: 'Notification marked as read', data: { notification } });
 });
+
+export const markAllAsRead = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  await notificationsService.markAllNotificationsRead(req.user.id);
+  return sendSuccess(res, { message: 'All notifications marked as read' });
+});

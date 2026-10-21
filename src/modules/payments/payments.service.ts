@@ -19,6 +19,26 @@ function toStripeError(error: unknown): never {
   throw error;
 }
 
+async function createPaymentNotification(
+  customerId: string,
+  shipmentId: string,
+  title: string,
+  outcome: 'successful' | 'failed',
+) {
+  const shipment = await prisma.shipment.findUnique({
+    where: { id: shipmentId },
+    select: { trackingNumber: true },
+  });
+  await prisma.notification.create({
+    data: {
+      userId: customerId,
+      type: 'PAYMENT',
+      title,
+      message: `Payment for shipment ${shipment?.trackingNumber ?? shipmentId} was ${outcome}.`,
+    },
+  });
+}
+
 export async function initiatePayment(customerId: string, shipmentId: string) {
   const shipment = await prisma.shipment.findFirst({
     where: { id: shipmentId, deletedAt: null, customerId },
@@ -84,31 +104,58 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session;
-      await prisma.payment.updateMany({
-        where: { stripeSessionId: session.id },
-        data: {
-          status: 'SUCCEEDED',
-          paidAt: new Date(),
-          stripePaymentIntentId:
-            typeof session.payment_intent === 'string' ? session.payment_intent : null,
-        },
+      const payment = await prisma.payment.findFirst({
+        where: { stripeSessionId: session.id, status: 'PENDING' },
       });
+      if (payment) {
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: 'SUCCEEDED',
+            paidAt: new Date(),
+            stripePaymentIntentId:
+              typeof session.payment_intent === 'string' ? session.payment_intent : null,
+          },
+        });
+        await createPaymentNotification(
+          payment.customerId,
+          payment.shipmentId,
+          'Payment successful',
+          'successful',
+        );
+      }
       break;
     }
     case 'checkout.session.expired': {
       const session = event.data.object as Stripe.Checkout.Session;
-      await prisma.payment.updateMany({
+      const payment = await prisma.payment.findFirst({
         where: { stripeSessionId: session.id, status: 'PENDING' },
-        data: { status: 'FAILED' },
       });
+      if (payment) {
+        await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+        await createPaymentNotification(
+          payment.customerId,
+          payment.shipmentId,
+          'Payment failed',
+          'failed',
+        );
+      }
       break;
     }
     case 'payment_intent.payment_failed': {
       const intent = event.data.object as Stripe.PaymentIntent;
-      await prisma.payment.updateMany({
+      const payment = await prisma.payment.findFirst({
         where: { stripePaymentIntentId: intent.id, status: 'PENDING' },
-        data: { status: 'FAILED' },
       });
+      if (payment) {
+        await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+        await createPaymentNotification(
+          payment.customerId,
+          payment.shipmentId,
+          'Payment failed',
+          'failed',
+        );
+      }
       break;
     }
     default:
@@ -120,6 +167,8 @@ interface ReconcilableFields {
   id: string;
   status: PaymentStatus;
   stripeSessionId: string | null;
+  customerId: string;
+  shipmentId: string;
 }
 
 async function reconcilePendingPayment<T extends ReconcilableFields>(payment: T): Promise<T> {
@@ -138,11 +187,23 @@ async function reconcilePendingPayment<T extends ReconcilableFields>(payment: T)
         where: { id: payment.id },
         data: { status: 'SUCCEEDED', paidAt, stripePaymentIntentId },
       });
+      await createPaymentNotification(
+        payment.customerId,
+        payment.shipmentId,
+        'Payment successful',
+        'successful',
+      );
       return { ...payment, status: 'SUCCEEDED', paidAt, stripePaymentIntentId };
     }
 
     if (session.status === 'expired') {
       await prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+      await createPaymentNotification(
+        payment.customerId,
+        payment.shipmentId,
+        'Payment failed',
+        'failed',
+      );
       return { ...payment, status: 'FAILED' };
     }
   } catch {

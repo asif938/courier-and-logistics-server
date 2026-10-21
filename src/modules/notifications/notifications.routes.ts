@@ -13,6 +13,7 @@ router.get(
   validate(listNotificationsQuerySchema, 'query'),
   notificationsController.listMyNotifications,
 );
+router.patch('/read-all', notificationsController.markAllAsRead);
 router.patch('/:id/read', notificationsController.markAsRead);
 
 export const notificationRoutes = router;
