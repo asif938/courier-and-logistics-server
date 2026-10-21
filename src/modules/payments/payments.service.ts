@@ -23,18 +23,23 @@ async function createPaymentNotification(
   customerId: string,
   shipmentId: string,
   title: string,
-  outcome: 'successful' | 'failed',
+  outcome: 'succeeded' | 'failed',
 ) {
   const shipment = await prisma.shipment.findUnique({
     where: { id: shipmentId },
     select: { trackingNumber: true },
   });
+  const trackingNumber = shipment?.trackingNumber ?? shipmentId;
+  const message =
+    outcome === 'succeeded'
+      ? `Payment for shipment ${trackingNumber} was successful.`
+      : `Payment for shipment ${trackingNumber} failed.`;
   await prisma.notification.create({
     data: {
       userId: customerId,
       type: 'PAYMENT',
       title,
-      message: `Payment for shipment ${shipment?.trackingNumber ?? shipmentId} was ${outcome}.`,
+      message,
     },
   });
 }
@@ -121,7 +126,7 @@ export async function handleStripeWebhook(rawBody: Buffer, signature: string) {
           payment.customerId,
           payment.shipmentId,
           'Payment successful',
-          'successful',
+          'succeeded',
         );
       }
       break;
@@ -191,7 +196,7 @@ async function reconcilePendingPayment<T extends ReconcilableFields>(payment: T)
         payment.customerId,
         payment.shipmentId,
         'Payment successful',
-        'successful',
+        'succeeded',
       );
       return { ...payment, status: 'SUCCEEDED', paidAt, stripePaymentIntentId };
     }
