@@ -375,6 +375,15 @@ model AuditLog {
   @@index([createdAt])
 }
 
+model ContactSettings {
+  id       String @id @default("singleton")
+  email    String
+  phone    String
+  location String
+
+  updatedAt DateTime @updatedAt
+}
+
 model RefreshToken {
   id        String    @id @default(cuid())
   userId    String

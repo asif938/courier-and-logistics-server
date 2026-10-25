@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { adminRoutes } from '../../modules/admin/admin.routes';
 import { authRoutes } from '../../modules/auth/auth.routes';
+import { contactRoutes } from '../../modules/contact/contact.routes';
 import { courierRoutes } from '../../modules/couriers/couriers.routes';
 import { healthRoutes } from '../../modules/health/health.routes';
 import { hubRoutes } from '../../modules/hubs/hubs.routes';
@@ -24,5 +25,6 @@ router.use('/couriers', courierRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/admin', adminRoutes);
 router.use('/payments', paymentRoutes);
+router.use('/contact', contactRoutes);
 
 export const v1Router = router;

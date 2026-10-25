@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma';
 import type { ServiceType } from '../../generated/prisma/client';
 import { ApiError } from '../../utils/ApiError';
+import { recordAuditLog } from '../../utils/auditLog';
 import { withUniqueConstraintHandling } from '../../utils/prismaErrors';
 import type { CreatePricingRuleInput } from './pricing.validation';
 
@@ -57,21 +58,46 @@ export async function getPriceQuote(input: PriceQuoteInput) {
   };
 }
 
-export async function createPricingRule(data: CreatePricingRuleInput) {
-  const [originZone, destinationZone] = await Promise.all([
-    prisma.zone.findFirst({ where: { id: data.originZoneId, deletedAt: null } }),
-    prisma.zone.findFirst({ where: { id: data.destinationZoneId, deletedAt: null } }),
-  ]);
+export async function createPricingRule(
+  adminUserId: string,
+  data: CreatePricingRuleInput,
+  ipAddress?: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const [originZone, destinationZone] = await Promise.all([
+      tx.zone.findFirst({ where: { id: data.originZoneId, deletedAt: null } }),
+      tx.zone.findFirst({ where: { id: data.destinationZoneId, deletedAt: null } }),
+    ]);
 
-  if (!originZone) {
-    throw ApiError.badRequest('Origin zone not found');
-  }
-  if (!destinationZone) {
-    throw ApiError.badRequest('Destination zone not found');
-  }
+    if (!originZone) {
+      throw ApiError.badRequest('Origin zone not found');
+    }
+    if (!destinationZone) {
+      throw ApiError.badRequest('Destination zone not found');
+    }
 
-  return withUniqueConstraintHandling(
-    () => prisma.pricingRule.create({ data }),
-    'A pricing rule already exists for this route, service type, and weight tier',
-  );
+    const rule = await withUniqueConstraintHandling(
+      () => tx.pricingRule.create({ data }),
+      'A pricing rule already exists for this route, service type, and weight tier',
+    );
+
+    await recordAuditLog(tx, {
+      actorUserId: adminUserId,
+      action: 'CREATE_PRICING_RULE',
+      entityType: 'PricingRule',
+      entityId: rule.id,
+      changes: {
+        originZoneId: rule.originZoneId,
+        destinationZoneId: rule.destinationZoneId,
+        serviceType: rule.serviceType,
+        minWeightKg: Number(rule.minWeightKg),
+        maxWeightKg: Number(rule.maxWeightKg),
+        basePrice: Number(rule.basePrice),
+        perKgRate: Number(rule.perKgRate),
+      },
+      ipAddress,
+    });
+
+    return rule;
+  });
 }

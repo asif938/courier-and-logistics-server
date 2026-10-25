@@ -53,7 +53,7 @@ export const updateShipment = catchAsync(async (req: AuthenticatedRequest, res: 
 });
 
 export const deleteShipment = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  await shipmentsService.softDeleteShipment(req.user, req.params.id as string);
+  await shipmentsService.softDeleteShipment(req.user, req.params.id as string, req.ip);
   return sendSuccess(res, { message: 'Shipment cancelled successfully' });
 });
 
@@ -68,6 +68,7 @@ export const assignCourier = catchAsync(async (req: AuthenticatedRequest, res: R
     req.user.id,
     req.params.id as string,
     courierId,
+    req.ip,
   );
   return sendSuccess(res, { message: 'Courier assigned successfully', data: { shipment } });
 });
@@ -80,12 +81,13 @@ export const updateStatus = catchAsync(async (req: AuthenticatedRequest, res: Re
     status,
     note,
     location,
+    req.ip,
   );
   return sendSuccess(res, { message: 'Shipment status updated successfully', data: { shipment } });
 });
 
 export const cancelShipment = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  const shipment = await shipmentsService.cancelShipment(req.user, req.params.id as string);
+  const shipment = await shipmentsService.cancelShipment(req.user, req.params.id as string, req.ip);
   return sendSuccess(res, { message: 'Shipment cancelled successfully', data: { shipment } });
 });
 
@@ -102,6 +104,7 @@ export const recordHubTransfer = catchAsync(async (req: AuthenticatedRequest, re
     req.params.id as string,
     fromHubId,
     toHubId,
+    req.ip,
   );
   return sendSuccess(res, { message: 'Hub transfer recorded successfully', data: { shipment } });
 });

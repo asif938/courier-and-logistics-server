@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma';
 import type { ShipmentStatus } from '../../generated/prisma/client';
 import { ApiError } from '../../utils/ApiError';
+import { recordAuditLog } from '../../utils/auditLog';
 import { buildPaginationMeta, toSkipTake } from '../../utils/pagination';
 import { generateTrackingNumber } from '../../utils/trackingNumber';
 import { syncShipmentPaymentStatus } from '../payments/payments.service';
@@ -206,27 +207,40 @@ export async function updateShipment(
   });
 }
 
-export async function softDeleteShipment(user: AuthUser, shipmentId: string) {
-  const shipment = await prisma.shipment.findFirst({
-    where: { id: shipmentId, deletedAt: null },
-  });
+export async function softDeleteShipment(user: AuthUser, shipmentId: string, ipAddress?: string) {
+  await prisma.$transaction(async (tx) => {
+    const shipment = await tx.shipment.findFirst({
+      where: { id: shipmentId, deletedAt: null },
+    });
 
-  if (!shipment) {
-    throw ApiError.notFound('Shipment not found');
-  }
-
-  if (user.role === 'CUSTOMER') {
-    if (shipment.customerId !== user.id) {
+    if (!shipment) {
       throw ApiError.notFound('Shipment not found');
     }
-    if (!PRE_PICKUP_STATUSES.includes(shipment.status as (typeof PRE_PICKUP_STATUSES)[number])) {
-      throw ApiError.conflict('This shipment can no longer be cancelled');
-    }
-  }
 
-  await prisma.shipment.update({
-    where: { id: shipmentId },
-    data: { deletedAt: new Date() },
+    if (user.role === 'CUSTOMER') {
+      if (shipment.customerId !== user.id) {
+        throw ApiError.notFound('Shipment not found');
+      }
+      if (!PRE_PICKUP_STATUSES.includes(shipment.status as (typeof PRE_PICKUP_STATUSES)[number])) {
+        throw ApiError.conflict('This shipment can no longer be cancelled');
+      }
+    }
+
+    await tx.shipment.update({
+      where: { id: shipmentId },
+      data: { deletedAt: new Date() },
+    });
+
+    if (user.role === 'ADMIN') {
+      await recordAuditLog(tx, {
+        actorUserId: user.id,
+        action: 'DELETE_SHIPMENT',
+        entityType: 'Shipment',
+        entityId: shipmentId,
+        changes: { trackingNumber: shipment.trackingNumber, statusAtDeletion: shipment.status },
+        ipAddress,
+      });
+    }
   });
 }
 
@@ -270,7 +284,12 @@ export async function requestPickup(user: AuthUser, shipmentId: string) {
   });
 }
 
-export async function assignCourier(adminUserId: string, shipmentId: string, courierId?: string) {
+export async function assignCourier(
+  adminUserId: string,
+  shipmentId: string,
+  courierId?: string,
+  ipAddress?: string,
+) {
   return prisma.$transaction(async (tx) => {
     const shipment = await tx.shipment.findFirst({
       where: { id: shipmentId, deletedAt: null },
@@ -358,6 +377,15 @@ export async function assignCourier(adminUserId: string, shipmentId: string, cou
       ],
     });
 
+    await recordAuditLog(tx, {
+      actorUserId: adminUserId,
+      action: 'ASSIGN_COURIER',
+      entityType: 'Shipment',
+      entityId: shipmentId,
+      changes: { courierId: targetCourierId, trackingNumber: updated.trackingNumber },
+      ipAddress,
+    });
+
     return updated;
   });
 }
@@ -368,6 +396,7 @@ export async function updateShipmentStatus(
   targetStatus: ShipmentStatus,
   note?: string,
   location?: string,
+  ipAddress?: string,
 ) {
   return prisma.$transaction(async (tx) => {
     const shipment = await tx.shipment.findFirst({ where: { id: shipmentId, deletedAt: null } });
@@ -440,11 +469,22 @@ export async function updateShipmentStatus(
       },
     });
 
+    if (user.role === 'ADMIN') {
+      await recordAuditLog(tx, {
+        actorUserId: user.id,
+        action: 'UPDATE_SHIPMENT_STATUS',
+        entityType: 'Shipment',
+        entityId: shipmentId,
+        changes: { from: shipment.status, to: targetStatus, note },
+        ipAddress,
+      });
+    }
+
     return updated;
   });
 }
 
-export async function cancelShipment(user: AuthUser, shipmentId: string) {
+export async function cancelShipment(user: AuthUser, shipmentId: string, ipAddress?: string) {
   return prisma.$transaction(async (tx) => {
     const shipment = await tx.shipment.findFirst({ where: { id: shipmentId, deletedAt: null } });
     if (!shipment) {
@@ -496,6 +536,17 @@ export async function cancelShipment(user: AuthUser, shipmentId: string) {
       });
     }
 
+    if (user.role === 'ADMIN') {
+      await recordAuditLog(tx, {
+        actorUserId: user.id,
+        action: 'CANCEL_SHIPMENT',
+        entityType: 'Shipment',
+        entityId: shipmentId,
+        changes: { from: shipment.status, trackingNumber: updated.trackingNumber },
+        ipAddress,
+      });
+    }
+
     return updated;
   });
 }
@@ -525,6 +576,7 @@ export async function recordHubTransfer(
   shipmentId: string,
   fromHubId: string,
   toHubId: string,
+  ipAddress?: string,
 ) {
   return prisma.$transaction(async (tx) => {
     const [shipment, fromHub, toHub] = await Promise.all([
@@ -561,7 +613,7 @@ export async function recordHubTransfer(
       },
     });
 
-    return tx.shipment.update({
+    const updated = await tx.shipment.update({
       where: { id: shipmentId },
       data: {
         currentHubId: toHubId,
@@ -579,5 +631,16 @@ export async function recordHubTransfer(
       },
       include: shipmentInclude,
     });
+
+    await recordAuditLog(tx, {
+      actorUserId: adminUserId,
+      action: 'RECORD_HUB_TRANSFER',
+      entityType: 'Shipment',
+      entityId: shipmentId,
+      changes: { fromHubId, toHubId, trackingNumber: updated.trackingNumber },
+      ipAddress,
+    });
+
+    return updated;
   });
 }
